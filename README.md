@@ -3,7 +3,7 @@ Tool for autocreating modpack changelog
 Compatible only with [Modrinth](https://modrinth.com/) (currently)
 
 **Instalation:**  
-`npm install minecraft-changelog-generator`
+`npm install --global minecraft-changelog-generator`
 
 **Aliases:**
 * auto-changelog
