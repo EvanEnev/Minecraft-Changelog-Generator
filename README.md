@@ -1,6 +1,9 @@
 # Minecraft-Changelog-Generator
 Tool for autocreating modpack changelog
 
+**Instalation:**  
+`npm install minecraft-changelog-generator`
+
 **Aliases:**
 * auto-changelog
 * ac
