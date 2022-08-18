@@ -1,5 +1,6 @@
 # Minecraft-Changelog-Generator
 Tool for autocreating modpack changelog
+Compatible only with Modrinth (currently)
 
 **Instalation:**  
 `npm install minecraft-changelog-generator`
