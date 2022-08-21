@@ -4,14 +4,17 @@ const yargs = require('yargs')
 const StreamZip = require('node-stream-zip')
 const fs = require('fs')
 const chalk = require('chalk')
+const { CheckUpdates } = require('./utils')
 const axios = require('axios').default
 
-const usage =
+const Usage =
   '\nUsage: changelog-generator <path/to/old.mrpack> <path/to/new.mrpack>'
 
-yargs.usage(usage).help(true)
+yargs.usage(Usage).help(true)
 
 const main = async () => {
+  await CheckUpdates()
+
   FirstArgument = yargs.argv._[0]
   SecondArgument = yargs.argv._[1]
 
@@ -39,67 +42,20 @@ const main = async () => {
     )
   }
 
-  const FirstFile = new StreamZip({ file: FirstArgument, storeEntries: true })
-  const SecondFile = new StreamZip({ file: SecondArgument, storeEntries: true })
-
-  // Thanks to https://github.com/Brawaru
-
-  const {
-    promise: FirstResultPromise,
-    resolve: FirstAcceptResult,
-    reject: FirstErrorResult,
-  } = defer()
-
-  FirstFile.on('ready', () => {
-    const IndexEntry = FirstFile.entry('modrinth.index.json')
-    if (IndexEntry == null) {
-      errorResult(new Error('Modrinth index file not found'))
-      return
-    }
-
-    FirstFile.stream(IndexEntry, (err, stream) => {
-      if (err != null) {
-        FirstErrorResult(err)
-        return
-      }
-
-      StreamToString(stream, FirstFile).then(
-        FirstAcceptResult,
-        FirstErrorResult
-      )
-    })
+  const FirstFile = new StreamZip.async({
+    file: FirstArgument,
+    storeEntries: true,
+  })
+  const SecondFile = new StreamZip.async({
+    file: SecondArgument,
+    storeEntries: true,
   })
 
-  const {
-    promise: SecondResultPromise,
-    resolve: SecondAcceptResult,
-    reject: SecondErrorResult,
-  } = defer()
+  const OldStream = await FirstFile.stream('modrinth.index.json')
+  const NewStream = await SecondFile.stream('modrinth.index.json')
 
-  SecondFile.on('ready', () => {
-    const IndexEntry = SecondFile.entry('modrinth.index.json')
-    if (IndexEntry == null) {
-      errorResult(new Error('Modrinth index file not found'))
-      return
-    }
-
-    SecondFile.stream(IndexEntry, (err, stream) => {
-      if (err != null) {
-        SecondErrorResult(err)
-        return
-      }
-
-      StreamToString(stream, SecondFile).then(
-        SecondAcceptResult,
-        SecondErrorResult
-      )
-    })
-  })
-
-  const FirstResult = await FirstResultPromise.finally(() => FirstFile.close())
-  const SecondResult = await SecondResultPromise.finally(() =>
-    SecondFile.close()
-  )
+  const FirstResult = await StreamToString(OldStream, FirstFile)
+  const SecondResult = await StreamToString(NewStream, SecondFile)
 
   const OldJson = JSON.parse(FirstResult)
   const NewJson = JSON.parse(SecondResult)
@@ -111,17 +67,13 @@ const main = async () => {
   let added = ''
   let removed = ''
 
+  const GetId = (file) => file.downloads[0].slice(30).split('/')[0]
+
   await Promise.all(
-    OldFiles?.map(async (file, index) => {
-      const id = file.downloads[0].slice(30).split('/')[0]
+    OldFiles?.map(async (file) => {
+      const id = GetId(file)
 
       if (
-        NewFiles.find(
-          (object) => JSON.stringify(object) === JSON.stringify(file)
-        )
-      ) {
-        return
-      } else if (
         NewFiles.find(
           (object) =>
             object.downloads[0].includes(id) &&
@@ -166,18 +118,14 @@ const main = async () => {
 
         removed += `* [${project.title}](https://modrinth.com/mod/${project.slug})  \n`
       }
-    }),
+    })
+  )
 
+  await Promise.all(
     NewFiles?.map(async (file) => {
-      const id = file.downloads[0].slice(30).split('/')[0]
+      const id = GetId(file)
 
       if (
-        OldFiles.find(
-          (object) => JSON.stringify(object) === JSON.stringify(file)
-        )
-      ) {
-        return
-      } else if (
         !OldFiles.find(
           (object) => JSON.stringify(object) === JSON.stringify(file)
         )
@@ -191,27 +139,38 @@ const main = async () => {
     })
   )
 
-  fs.writeFileSync(
-    'changelog.md',
-    `*Added:*  \n${added}  \n*Changed:*  \n${changed}  \n*Removed:*  \n${removed}`
-  )
+  let context = ''
 
-  function StreamToString(stream) {
+  if (added.length > 0) {
+    context += `*Added:*  \n${added}  \n`
+  }
+
+  if (changed.length > 0) {
+    context += `*Changed:*  \n${changed}  \n`
+  }
+
+  if (removed.length > 0) {
+    context += `*Removed:*  \n${removed}`
+  }
+
+  if (context.length == 0) {
+    return console.log(chalk.red('No changes foung'))
+  }
+
+  fs.writeFile('changelog.md', context, () => {
+    console.log(chalk.green('The changelog.md has been saved'))
+  })
+
+  function StreamToString(stream, file) {
     const chunks = []
     return new Promise((resolve, reject) => {
       stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
       stream.on('error', (err) => reject(err))
-      stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+      stream.on('end', () => {
+        file.close()
+        return resolve(Buffer.concat(chunks).toString('utf8'))
+      })
     })
-  }
-
-  function defer() {
-    let resolve, reject
-    const promise = new Promise((res, rej) => {
-      resolve = res
-      reject = rej
-    })
-    return { promise, resolve, reject }
   }
 }
 
