@@ -1,6 +1,6 @@
 {
   "name": "minecraft-changelog-generator",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Tool for autocreating modpack changelog",
   "main": "bin/index.js",
   "scripts": {},
@@ -19,10 +19,10 @@
   "dependencies": {
     "axios": "^0.27.2",
     "chalk": "^4.1.2",
+    "minecraft-changelog-generator": "^1.0.2",
     "node-stream-zip": "^1.15.0",
     "yargs": "^17.5.1"
   },
-  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/EvanEnev/Minecraft-Changelog-Generator.git"

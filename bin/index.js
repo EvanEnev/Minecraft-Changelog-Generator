@@ -5,6 +5,7 @@ const StreamZip = require('node-stream-zip')
 const fs = require('fs')
 const chalk = require('chalk')
 const { CheckUpdates } = require('./utils')
+const FetchErrors = require('../Functions/FetchErrors')
 const axios = require('axios').default
 
 const Usage =
@@ -12,40 +13,19 @@ const Usage =
 
 yargs.usage(Usage).help(true)
 
-const main = async () => {
+const Main = async () => {
   await CheckUpdates()
 
   FirstArgument = yargs.argv._[0]
   SecondArgument = yargs.argv._[1]
 
-  if (
-    !(
-      FirstArgument &&
-      FirstArgument?.endsWith('.mrpack') &&
-      fs.existsSync(FirstArgument)
-    )
-  ) {
-    return console.log(
-      chalk.red('\nYou should provide a valid path to old .mrpack file')
-    )
-  }
-
-  if (
-    !(
-      SecondArgument &&
-      SecondArgument?.endsWith('.mrpack') &&
-      fs.existsSync(SecondArgument)
-    )
-  ) {
-    return console.log(
-      chalk.red('\nYou should provide a valid path to new .mrpack file')
-    )
-  }
+  FetchErrors(yargs.argv._)
 
   const FirstFile = new StreamZip.async({
     file: FirstArgument,
     storeEntries: true,
   })
+
   const SecondFile = new StreamZip.async({
     file: SecondArgument,
     storeEntries: true,
@@ -63,9 +43,9 @@ const main = async () => {
   const OldFiles = OldJson?.files
   const NewFiles = NewJson?.files
 
-  let changed = ''
-  let added = ''
-  let removed = ''
+  let changed = []
+  let added = []
+  let removed = []
 
   const GetId = (file) => file.downloads[0].slice(30).split('/')[0]
 
@@ -106,7 +86,13 @@ const main = async () => {
           )
         )
 
-        changed += `* [${project.title}](https://modrinth.com/mod/${project.slug}): ${OldVesrion.version_number} -> ${NewVersion.version_number}  \n`
+        changed.push({
+          project,
+          versions: {
+            old: OldVesrion.version_number,
+            new: NewVersion.version_number,
+          },
+        })
       } else if (
         !NewFiles.find(
           (object) => JSON.stringify(object) === JSON.stringify(file)
@@ -116,7 +102,7 @@ const main = async () => {
           await axios.get(`https://api.modrinth.com/v2/project/${id}`)
         ).data
 
-        removed += `* [${project.title}](https://modrinth.com/mod/${project.slug})  \n`
+        removed.push({ project })
       }
     })
   )
@@ -134,23 +120,44 @@ const main = async () => {
           await axios.get(`https://api.modrinth.com/v2/project/${id}`)
         ).data
 
-        added += `* [${project.title}](https://modrinth.com/mod/${project.slug})  \n`
+        added.push({ project })
       }
     })
   )
 
   let context = ''
 
+  changed.sort((a, b) => a.project.title.localeCompare(b.project.title))
+
+  added.sort((a, b) => a.project.title.localeCompare(b.project.title))
+
+  removed.sort((a, b) => a.project.title.localeCompare(b.project.title))
+
   if (added.length > 0) {
-    context += `*Added:*  \n${added}  \n`
+    context += `*Added:*  \n${added
+      .map(
+        (object) =>
+          `* [${object.project.title}](https://modrinth.com/mod/${object.project.slug})  `
+      )
+      .join('\n')}  \n`
   }
 
   if (changed.length > 0) {
-    context += `*Changed:*  \n${changed}  \n`
+    context += `*Changed:*  \n${changed
+      .map(
+        (object) =>
+          `* [${object.project.title}](https://modrinth.com/mod/${object.project.slug}): ${object.versions.old.version_number} -> ${object.versions.new.version_number}  `
+      )
+      .join('\n')}  \n`
   }
 
   if (removed.length > 0) {
-    context += `*Removed:*  \n${removed}`
+    context += `*Removed:*  \n${removed
+      .map(
+        (object) =>
+          `* [${object.project.title}](https://modrinth.com/mod/${object.project.slug})  `
+      )
+      .join('\n')}`
   }
 
   if (context.length == 0) {
@@ -174,4 +181,4 @@ const main = async () => {
   }
 }
 
-main()
+Main()
