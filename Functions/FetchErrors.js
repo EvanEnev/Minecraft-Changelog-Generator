@@ -1,27 +1,25 @@
 const fs = require('fs')
+const chalk = require('chalk')
 
 module.exports = (args) => {
   if (
     !(
-      FirstArgument &&
-      FirstArgument?.endsWith('.mrpack') &&
-      fs.existsSync(FirstArgument)
+      args[0]?.endsWith('.mrpack') &&
+      fs.existsSync(args[0])
     )
   ) {
-    return console.log(
-      chalk.red('\nYou should provide a valid path to old .mrpack file')
-    )
+      return chalk.red('\nYou should provide a valid path to old .mrpack file')
+    
   }
 
   if (
     !(
-      SecondArgument &&
-      SecondArgument?.endsWith('.mrpack') &&
-      fs.existsSync(SecondArgument)
+      args[1]?.endsWith('.mrpack') &&
+      fs.existsSync(args[1])
     )
   ) {
-    return console.log(
-      chalk.red('\nYou should provide a valid path to new .mrpack file')
-    )
+    return chalk.red('\nYou should provide a valid path to new .mrpack file')
   }
+
+  return false
 }

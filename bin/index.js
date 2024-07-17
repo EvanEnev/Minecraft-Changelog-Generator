@@ -5,121 +5,132 @@ const StreamZip = require('node-stream-zip')
 const fs = require('fs')
 const chalk = require('chalk')
 const { CheckUpdates } = require('./utils')
-const FetchErrors = require('../Functions/FetchErrors')
+const fetchErrors = require('../functions/fetchErrors')
 const axios = require('axios').default
 
-const Usage =
-  '\nUsage: changelog-generator <path/to/old.mrpack> <path/to/new.mrpack>'
+  const Usage =
+    '\nUsage: changelog-generator <path/to/old.mrpack> <path/to/new.mrpack>'
 
 yargs.usage(Usage).help(true)
 
 const Main = async () => {
   await CheckUpdates()
 
-  FirstArgument = yargs.argv._[0]
-  SecondArgument = yargs.argv._[1]
+  const firstArgument = yargs.argv._[0]
+  const secondArgument = yargs.argv._[1]
 
-  FetchErrors(yargs.argv._)
+  const message = fetchErrors(yargs.argv._)
 
-  const FirstFile = new StreamZip.async({
-    file: FirstArgument,
+  if (message) {
+    return console.log(message)
+  }
+
+  const firstFile = new StreamZip.async({
+    file: firstArgument,
     storeEntries: true,
   })
 
-  const SecondFile = new StreamZip.async({
-    file: SecondArgument,
+  const secondFile = new StreamZip.async({
+    file: secondArgument,
     storeEntries: true,
   })
 
-  const OldStream = await FirstFile.stream('modrinth.index.json')
-  const NewStream = await SecondFile.stream('modrinth.index.json')
+  const oldStream = await firstFile.stream('modrinth.index.json')
+  const newStream = await secondFile.stream('modrinth.index.json')
 
-  const FirstResult = await StreamToString(OldStream, FirstFile)
-  const SecondResult = await StreamToString(NewStream, SecondFile)
+  const FirstResult = await StreamToString(oldStream, firstFile)
+  const SecondResult = await StreamToString(newStream, secondFile)
 
   const OldJson = JSON.parse(FirstResult)
   const NewJson = JSON.parse(SecondResult)
 
-  const OldFiles = OldJson?.files
-  const NewFiles = NewJson?.files
+  const oldFiles = OldJson?.files
+  const newFiles = NewJson?.files
 
   let changed = []
   let added = []
   let removed = []
 
-  const GetId = (file) => file.downloads[0].slice(30).split('/')[0]
+  const base62Regexp = new RegExp('^[a-zA-Z0-9]{1,}$')
+
+  const GetId = (file) => {
+    const splitted = file.downloads[0].slice(30).split('/')
+
+    return {
+      project: splitted[0],
+      version: splitted[2],
+      valid: base62Regexp.test(splitted[2]),
+    }
+  }
+
+  const getProjects = async (ids) => 
+     (await axios.get(`https://api.modrinth.com/v2/projects?ids=${JSON.stringify(ids)}`).catch(e => console.error(e)))?.data
+  const getVersions = async (ids) => 
+     (await axios.get(`https://api.modrinth.com/v2/versions?ids=${JSON.stringify(ids)}`).catch(e => console.error(e)))?.data
+
+  const oldProjectIds = oldFiles.map(file => GetId(file).project)
+  const newProjectIds = newFiles.map(file => GetId(file).project)
+
+  const getVersion = (file) => {
+    const ids = GetId(file)
+    return ids.valid ? ids.version : ''
+  }
+
+  const oldProjectVersions = oldFiles.map(getVersion)
+  const newProjectVersions = newFiles.map(getVersion)
+
+  const oldProjects = await getProjects(oldProjectIds)
+  const newProjects = await getProjects(newProjectIds)
+
+  const oldVersions = await getVersions(oldProjectVersions)
+  const newVersions = await getVersions(newProjectVersions)
 
   await Promise.all(
-    OldFiles?.map(async (file) => {
-      const id = GetId(file)
+    oldProjects?.map(async (project) => {
+      const { id } = project
 
-      if (
-        NewFiles.find(
-          (object) =>
-            object.downloads[0].includes(id) &&
-            JSON.stringify(object) != JSON.stringify(file)
-        )
+      const versions = {
+        old: oldVersions?.flat()?.filter((version) =>
+          version?.project_id === id
+        ),
+        new: newVersions?.flat()?.filter((version) =>
+          version?.project_id === id
+        ),
+      }
+
+      const oldVersion = versions.old[0]
+      const newVersion = versions.new[0]
+
+      if (newVersion && oldVersion.id !== newVersion.id
       ) {
-        const project = (
-          await axios.get(`https://api.modrinth.com/v2/project/${id}`)
-        ).data
-
-        const NewFile = NewFiles.find(
-          (object) =>
-            object.downloads[0].includes(id) &&
-            JSON.stringify(object) != JSON.stringify(file)
-        )
-
-        const versions = (
-          await axios.get(`https://api.modrinth.com/v2/project/${id}/version`)
-        ).data
-
-        const OldVesrion = versions.find((object) =>
-          object.files.find(
-            (VersionFile) => file.downloads[0] === VersionFile.url
-          )
-        )
-
-        const NewVersion = versions.find((object) =>
-          object.files.find(
-            (VersionFile) => NewFile.downloads[0] === VersionFile.url
-          )
-        )
-
         changed.push({
           project,
           versions: {
-            old: OldVesrion.version_number,
-            new: NewVersion.version_number,
+            old: oldVersion.version_number,
+            new: newVersion.version_number,
           },
         })
       } else if (
-        !NewFiles.find(
-          (object) => JSON.stringify(object) === JSON.stringify(file)
+        !newFiles.find(
+          (object) => object.id === id
         )
       ) {
-        const project = (
-          await axios.get(`https://api.modrinth.com/v2/project/${id}`)
-        ).data
-
         removed.push({ project })
       }
     })
   )
 
   await Promise.all(
-    NewFiles?.map(async (file) => {
-      const id = GetId(file)
+    newProjects?.map(async (project) => {
+      const { id } = project
 
       if (
-        !OldFiles.find(
-          (object) => JSON.stringify(object) === JSON.stringify(file)
+        !oldProjects.find(
+          (object) => object.id === id
+        ) && !changed.find(
+          (object) => object.project.id === id
         )
       ) {
-        const project = (
-          await axios.get(`https://api.modrinth.com/v2/project/${id}`)
-        ).data
-
         added.push({ project })
       }
     })
@@ -134,7 +145,7 @@ const Main = async () => {
   removed.sort((a, b) => a.project.title.localeCompare(b.project.title))
 
   if (added.length > 0) {
-    context += `*Added:*  \n${added
+    context += `*Added (${added.length}):*  \n${added
       .map(
         (object) =>
           `* [${object.project.title}](https://modrinth.com/mod/${object.project.slug})  `
@@ -143,16 +154,16 @@ const Main = async () => {
   }
 
   if (changed.length > 0) {
-    context += `*Changed:*  \n${changed
+    context += `*Changed (${changed.length}):*  \n${changed
       .map(
         (object) =>
-          `* [${object.project.title}](https://modrinth.com/mod/${object.project.slug}): ${object.versions.old.version_number} -> ${object.versions.new.version_number}  `
+          `* [${object.project.title}](https://modrinth.com/mod/${object.project.slug}): ${object.versions.old} -> ${object.versions.new}  `
       )
       .join('\n')}  \n`
   }
 
   if (removed.length > 0) {
-    context += `*Removed:*  \n${removed
+    context += `*Removed (${removed.length}):*  \n${removed
       .map(
         (object) =>
           `* [${object.project.title}](https://modrinth.com/mod/${object.project.slug})  `
